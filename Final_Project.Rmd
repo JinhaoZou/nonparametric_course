@@ -1,0 +1,232 @@
+---
+title: "Final_project"
+author: "Jinhao Zou"
+date: "4/27/2021"
+output: html_document
+---
+
+Understand data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# for boosting
+library(SemiPar)
+library(gbm)
+```
+
+
+# Simulate Data
+## Simulation function
+parameters to change
+```{r}
+ns <- c(500, 1000, 5000)
+models <- c("linear", "quadratic")
+```
+
+### continues outcome  
+```{r}
+Gene_data_con <- function(seed, n, model){
+  #n <- 500
+  #model <- models[1]
+  set.seed(seed)
+  x <- rnorm(n, 0, 5)
+  b <- b1 <- b2 <- 1
+  e <- rnorm(n, 0, 10)
+  if(model == "linear"){
+    y = b*x + e
+  }else{
+    y = b1*x + b2*x^2 + e
+  }
+  
+  data = as.data.frame(cbind(x = x, y = y))
+  return(data)
+}
+```
+
+##### Data looks
+```{r}
+Data_con1 <- Gene_data_con(1,500,models[1])
+Data_con2 <- Gene_data_con(1,500,models[2])
+plot(Data_con1$x, Data_con1$y, ylim = c(-35, 150), xlab = "x", ylab = "y")
+points(Data_con2$x, Data_con2$y, col = "blue")
+legend(13, 150, c("linear", "quadratic"), col = c("black", "blue"),  pch=c(1,1))
+```
+
+
+## Estimation method
+```{r}
+#x <- rep(0, 500*0.7)
+#y <- rep(0, 500*0.7)
+Est_con <- function(data){
+  set.seed(123)
+  
+  #data <- Data_con2
+  n <- dim(data)[1]
+  smp_idx <- sample(seq(n), n*0.7)
+  train = data[smp_idx, ]
+  test = data[-smp_idx, ]
+
+  #linear regression
+  fit_lm <- lm(y ~ x, data = train)
+  MSEpre.lm  <- mean(fit_lm$residuals^2)
+  pret.lm <- predict(fit_lm, test)
+ 
+  #Tree method, boosting
+  boost <- gbm(y ~ x, data = train, distribution = "gaussian", n.trees = 500)
+  MSEpre.boost <- mean((train$y - boost$fit)^2)
+  pret.boost <- predict(boost, test)
+  
+  #linear mixed model 
+  x <<- train$x
+  y <<- train$y
+  lmm <- spm(y ~ f(x, basis="trunc.poly", degree = 1))
+  MSEpre.lmm <- mean((train$y - lmm$fit$fitted)^2)
+  pret.lmm <- predict(lmm, data.frame(x = test$x))
+  
+  Pret <- data.frame(cbind(lm = pret.lm, boost = pret.boost, lmm = pret.lmm))
+  MSE.train <- c(MSEpre.lm, MSEpre.boost, MSEpre.lmm)
+  MSE.test <- sapply(seq(3), FUN = function(x) mean((test$y - Pret[,x])^2))
+  
+  return(list(test = test, Pret = Pret, MSE.train = MSE.train, MSE.test = MSE.test))
+}
+```
+
+
+```{r}
+Est.con1 <- Est_con(Data_con1)
+Est.con2 <- Est_con(Data_con2)
+```
+
+```{r}
+plot(Est.con1$test$x, Est.con1$test$y, xlab = "x", ylab = "y", main = "Predict y form x (y = bx)", pch = 1)
+points(Est.con1$test$x, Est.con1$Pret[,1], col = "blue", pch = 1)
+points(Est.con1$test$x, Est.con1$Pret[,2], col = "red",  pch = 2)
+points(Est.con1$test$x, Est.con1$Pret[,3], col = "green",pch = 3)
+legend(-12, 28, c("observed", "linear regression", "boost method", "Penalized spline"), col = c("black","blue", "red","green"),pch = c(1,1,2,3))
+
+plot(Est.con2$test$x, Est.con2$test$y, xlab = "x", ylab = "y", main = "Predict y form x (y = bx + bx^2)", ylim = c(-40, 250), pch = 1)
+points(Est.con2$test$x, Est.con2$Pret[,1], col = "blue", pch = 1)
+points(Est.con2$test$x, Est.con2$Pret[,2], col = "red",  pch = 2)
+points(Est.con2$test$x, Est.con2$Pret[,3], col = "green",pch = 3)
+legend(-12, 250, c("observed","linear regression", "boost method", "Penalized spline"), col = c("black","blue", "red", "green"), pch = c(1,1,2,3))
+
+```
+
+
+## binary outcome 
+### binary
+```{r}
+Gene_data_bi <- function(seed, n, model){
+  #n <- 500
+  #model <- models[3]
+  set.seed(seed)
+  x <- rnorm(n, 0, 5)
+  #x <- c(runif(n/2, -10, -5), runif(n/2, 5,10))
+  b <- b1 <- b2 <- 1
+  e <- rnorm(n, 0, 1)
+  if(model == "linear"){
+    Uy = b*x + e
+  }else{
+    Uy = b1*x + b2*x^2 + e
+  }
+  py = exp(Uy)/(1 + exp(Uy))
+  y = sapply(py, FUN = function(x) rbinom(1,1,x))
+  
+  data = data.frame(x = x, py = py, y = y)
+  return(data)
+}
+```
+
+```{r}
+Data_bi1 <- Gene_data_bi(1,500,models[1])
+Data_bi2 <- Gene_data_bi(1,500,models[2])
+plot(Data_bi1$x, Data_bi1$py, ylim = c(0, 1), xlab = "x", ylab = "P(y)", main = "P(y)-x relationship for binary y")
+points(Data_bi2$x, Data_bi2$py, col = "blue")
+legend(12, 0.95, c("linear", "quadratic"), col = c("black", "blue"),  pch=c(1,1))
+```
+
+## Estimation method
+```{r}
+# This function is to transfer the predicted logodds in to probability and cauculate the error ratio
+#pret is the logodds
+# compare is the true data
+predi_trans <- function(pret, compare, type = "other",...){
+  
+  if(type == "lm"){
+     test.py <- pret
+     bin <- ifelse(pret >= 0.5, 1, 0)
+  }else{
+    test.py <- exp(pret)/(1+exp(pret))
+    bin <- ifelse(pret >= 0, 1, 0)
+  }
+  tb <- table(Pret = bin, compare$y)
+  er <- 1 - sum(diag(tb))/sum(tb)
+  
+  return(list(test.py = test.py, er = er))
+}
+
+Est_bi <- function(data){
+  set.seed(123)
+  
+  #data <- Data_bi1
+  n <- dim(data)[1]
+  smp_idx <- sample(seq(n), n*0.7)
+  train = data[smp_idx, ]
+  test = data[-smp_idx, ]
+
+  #linear regression
+  fit_lm <- glm(y ~ x, data = train, family = "binomial")
+  ERtr.lm <- predi_trans(fit_lm$fitted.values, train, type = "lm")$er
+  pret.lm <- predi_trans(predict(fit_lm, test), test)
+  
+  #Tree method, boosting
+  boost = gbm(y ~ x, data = train, n.trees = 500)
+  ERtr.boost <- predi_trans(boost$fit, train)$er
+  pret.boost <- predi_trans(predict(boost, test), test) 
+  
+  #linear mixed model 
+  x <<- train$x
+  y <<- train$y
+  lmm <- spm(y ~ f(x), family="binomial")
+  ERtr.lmm <- predi_trans(lmm$fit$fitted[,1], train)$er
+  pret.lmm <- predi_trans(predict(lmm, data.frame(x = test$x)), test) 
+  
+  PretPy <- data.frame(cbind(lm = pret.lm$test.py, boost = pret.boost$test.py, lmm = pret.lmm$test.py))
+  ER.train <- c(lm = ERtr.lm, boost = ERtr.boost , lmm = ERtr.lmm )
+  ER.test <- c(lm = pret.lm$er, boost = pret.boost$er, lmm = pret.lmm$er)
+
+  return(list(test = test, PretPy = PretPy, ER.train = ER.train, ER.test = ER.test))
+}
+```
+
+## Figures to understand the estimations
+```{r}
+Est.bi1 <- Est_bi(Data_bi1)
+Est.bi2 <- Est_bi(Data_bi2)
+```
+
+
+
+```{r}
+plot(Est.bi1$test$x, Est.bi1$test$py, xlab = "x", ylab = "p(y)", main = "Predict P(y) form x (y = bx)", pch = 1)
+points(Est.bi1$test$x, Est.bi1$PretPy[,1], col = "blue", pch = 1)
+points(Est.bi1$test$x, Est.bi1$PretPy[,2], col = "red",  pch = 2)
+points(Est.bi1$test$x, Est.bi1$PretPy[,3], col = "green",pch = 3)
+legend(5.4, 0.4, c("observed", "linear regression", "boost method", "Penalized spline"), col = c("black","blue", "red","green"),pch = c(1,1,2,3))
+
+plot(Est.bi2$test$x, Est.bi2$test$py, xlab = "x", ylab = "p(y)", main = "Predict P(y) form x (y = bx + bx^2)")
+points(Est.bi2$test$x, Est.bi2$PretPy[,1], col = "blue", pch = 1)
+points(Est.bi2$test$x, Est.bi2$PretPy[,2], col = "red",  pch = 2)
+points(Est.bi2$test$x, Est.bi2$PretPy[,3], col = "green",pch = 3)
+legend(5.4, 0.4, c("observed","linear regression", "boost method", "Penalized spline"), col = c("black","blue", "red", "green"), pch = c(1,1,2,3))
+
+
+
+```
+
+
+

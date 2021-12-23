@@ -1,0 +1,307 @@
+---
+title: "Final_project"
+author: "Jinhao Zou"
+date: "4/27/2021"
+output: html_document
+---
+
+Main simulations
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# for boosting
+library(SemiPar)
+library(gbm)
+```
+
+
+# Simulate Data
+## Simulation function
+parameters to change
+```{r}
+ns <- c(100, 500, 1000)
+models <- c("linear", "quadratic")
+```
+
+### continues outcome  
+```{r}
+Gene_data_con <- function(seed, n, model){
+  #n <- 500
+  #model <- models[1]
+  set.seed(seed)
+  x <- rnorm(n, 0, 5)
+  b <- b1 <- b2 <- 1
+  e <- rnorm(n, 0, 10)
+  if(model == "linear"){
+    y = b*x + e
+  }else{
+    y = b1*x + b2*x^2 + e
+  }
+  
+  data = as.data.frame(cbind(x = x, y = y))
+  return(data)
+}
+```
+
+
+## Estimation method
+```{r}
+#x <- rep(0, 500*0.7)
+#y <- rep(0, 500*0.7)
+Est_con <- function(data){
+  set.seed(123)
+  #data <- Data_con2
+  n <- dim(data)[1]
+  smp_idx <- sample(seq(n), n*0.7)
+  train = data[smp_idx, ]
+  test = data[-smp_idx, ]
+
+  #linear regression
+  fit_lm <- lm(y ~ x, data = train)
+  MSEpre.lm  <- mean(fit_lm$residuals^2)
+  pret.lm <- predict(fit_lm, test)
+ 
+  #Tree method, boosting
+  boost <- gbm(y ~ x, data = train, distribution = "gaussian", n.trees = 500)
+  MSEpre.boost <- mean((train$y - boost$fit)^2)
+  pret.boost <- predict(boost, test)
+  
+  #linear mixed model 
+  x <<- train$x
+  y <<- train$y
+  lmm <- spm(y ~ f(x, basis="trunc.poly", degree = 1))
+  MSEpre.lmm <- mean((train$y - lmm$fit$fitted)^2)
+  pret.lmm <- predict(lmm, data.frame(x = test$x))
+  
+  Pret <- data.frame(cbind(lm = pret.lm, boost = pret.boost, lmm = pret.lmm))
+  MSE.train <- c(MSEpre.lm, MSEpre.boost, MSEpre.lmm)
+  MSE.test <- sapply(seq(3), FUN = function(x) mean((test$y - Pret[,x])^2))
+  
+  return(cbind(MSE.train = MSE.train, MSE.test = MSE.test))
+}
+```
+
+
+```{r}
+Sim2.4 <- apply(sapply(seq(100), FUN = function(x) Est_con(Gene_data_con(x,5000, models[2]))), 1, FUN = function(x) c(mean(x), quantile(x, c(0.025, 0.975))))
+```
+```{r}
+Sim2.4
+```
+
+#Main estimation
+```{r}
+# For model 1 and different n
+Sim1.1 <- apply(sapply(seq(100), FUN = function(x) Est_con(Gene_data_con(x,ns[1], models[1]))), 1, FUN = function(x) c(mean(x), quantile(x, c(0.025, 0.975))))
+Sim1.2 <- apply(sapply(seq(100), FUN = function(x) Est_con(Gene_data_con(x,ns[2], models[1]))), 1, FUN = function(x) c(mean(x), quantile(x, c(0.025, 0.975))))
+Sim1.3 <- apply(sapply(seq(100), FUN = function(x) Est_con(Gene_data_con(x,ns[3], models[1]))), 1, FUN = function(x) c(mean(x), quantile(x, c(0.025, 0.975))))
+
+
+# For model 2 and different n
+Sim2.1 <- apply(sapply(seq(100), FUN = function(x) Est_con(Gene_data_con(x,ns[1], models[2]))), 1, FUN = function(x) c(mean(x), quantile(x, c(0.025, 0.975))))
+Sim2.2 <- apply(sapply(seq(100), FUN = function(x) Est_con(Gene_data_con(x,ns[2], models[2]))), 1, FUN = function(x) c(mean(x), quantile(x, c(0.025, 0.975))))
+Sim2.3 <- apply(sapply(seq(100), FUN = function(x) Est_con(Gene_data_con(x,ns[3], models[2]))), 1, FUN = function(x) c(mean(x), quantile(x, c(0.025, 0.975))))
+
+
+colnames(Sim1.1) <- colnames(Sim1.2) <- colnames(Sim1.3)  <- colnames(Sim2.1)  <- colnames(Sim2.2)  <- colnames(Sim2.3) <- c("train.lm","train.boost", "train.lmm", "test.lm", "test.boost", "test.lmm")
+
+Est_con <- list(Sim1.1 = Sim1.1, Sim1.2 = Sim1.2, Sim1.3 = Sim1.3, Sim2.1 = Sim2.1, Sim2.2 = Sim2.2, Sim2.3 = Sim2.3)
+
+save(Est_con, file = "C:/Users/jzou2/Box Sync/Classes/non_parametric/final_project/Est_con.RData")
+```
+
+
+```{r}
+load(file = "C:/Users/jzou2/Box Sync/Classes/non_parametric/final_project/Est_con.RData")
+Est_con_result <- matrix(NA, 6, 6)
+colnames(Est_con_result) <- rep(c("train", "test"),3)
+rownames(Est_con_result) <- rep(ns,2)
+for(i in seq(6)){
+  Est_con_result[i,1] <- paste(sprintf("%.2f",Est_con[[i]][1,1])," (", sprintf("%.2f",Est_con[[i]][2,1]), ",", sprintf("%.2f",Est_con[[i]][3,1]), ")", sep = "")
+  Est_con_result[i,2] <- paste(sprintf("%.2f",Est_con[[i]][1,4])," (", sprintf("%.2f",Est_con[[i]][2,4]), ",", sprintf("%.2f",Est_con[[i]][3,4]), ")", sep = "")
+  Est_con_result[i,3] <- paste(sprintf("%.2f",Est_con[[i]][1,2])," (", sprintf("%.2f",Est_con[[i]][2,2]), ",", sprintf("%.2f",Est_con[[i]][3,2]), ")", sep = "")
+  Est_con_result[i,4] <- paste(sprintf("%.2f",Est_con[[i]][1,5])," (", sprintf("%.2f",Est_con[[i]][2,5]), ",", sprintf("%.2f",Est_con[[i]][3,5]), ")", sep = "")
+  Est_con_result[i,5] <- paste(sprintf("%.2f",Est_con[[i]][1,3])," (", sprintf("%.2f",Est_con[[i]][2,3]), ",", sprintf("%.2f",Est_con[[i]][3,3]), ")", sep = "")
+  Est_con_result[i,6] <- paste(sprintf("%.2f",Est_con[[i]][1,6])," (", sprintf("%.2f",Est_con[[i]][2,6]), ",", sprintf("%.2f",Est_con[[i]][3,6]), ")", sep = "")
+}
+
+```
+
+```{r}
+setwd("C:/Users/jzou2/Box Sync/Classes/non_parametric/final_project/")
+Sys.setenv(JAVA_HOME='C://Program Files (x86)//Java//jre1.8.0_121') # for 64-bit version
+library(xlsx)
+write.xlsx(Est_con_result, "Est_con_result.xlsx")
+```
+
+
+## binary outcome 
+### binary
+```{r}
+Gene_data_bi <- function(seed, n, model){
+  #n <- 500
+  #model <- models[3]
+  print(seed)
+  set.seed(seed)
+  x <- rnorm(n, 0, 5)
+  #x <- c(runif(n/2, -10, -5), runif(n/2, 5,10))
+  b <- b1 <- b2 <- 1
+  e <- rnorm(n, 0, 1)
+  if(model == "linear"){
+    Uy = b*x + e
+  }else{
+    Uy = b1*x + b2*x^2 + e
+  }
+  py = exp(Uy)/(1 + exp(Uy))
+  y = sapply(py, FUN = function(x) rbinom(1,1,x))
+  
+  data = data.frame(x = x, py = py, y = y)
+  return(data)
+}
+```
+
+```{r}
+Data_bi1 <- Gene_data_bi(1,500,models[1])
+Data_bi2 <- Gene_data_bi(1,500,models[2])
+plot(Data_bi1$x, Data_bi1$py, ylim = c(0, 1))
+points(Data_bi2$x, Data_bi2$py, col = "blue")
+```
+
+## Estimation method
+```{r}
+# This function is to transfer the predicted logodds in to probability and cauculate the error ratio
+#pret is the logodds
+# compare is the true data
+predi_trans <- function(pret, compare, type = "other",...){
+  
+  if(type == "lm"){
+     #test.py <- pret
+     bin <- ifelse(pret >= 0.5, 1, 0)
+  }else{
+    #test.py <- exp(pret)/(1+exp(pret))
+    bin <- ifelse(pret >= 0, 1, 0)
+  }
+  tb <- table(Pret = bin, compare$y)
+  er <- 1 - sum(diag(tb))/sum(tb)
+  
+  #return(list(test.py = test.py, er = er))
+  return(er)
+}
+
+
+Est_bi <- function(data){
+  set.seed(123)
+  
+  #data <- Data_bi1
+  n <- dim(data)[1]
+  smp_idx <- sample(seq(n), n*0.7)
+  train = data[smp_idx, ]
+  test = data[-smp_idx, ]
+
+  #linear regression
+  fit_lm <- glm(y ~ x, data = train, family = "binomial")
+  ERtr.lm <- predi_trans(fit_lm$fitted.values, train, type = "lm")
+  pret.lm <- predi_trans(predict(fit_lm, test), test)
+  
+  #Tree method, boosting
+  boost = gbm(y ~ x, data = train, n.trees = 500)
+  ERtr.boost <- predi_trans(boost$fit, train)
+  pret.boost <- predi_trans(predict(boost, test), test) 
+  
+  #linear mixed model 
+  x <<- train$x
+  y <<- train$y
+  lmm_out <- tryCatch({
+    spm(y ~ f(x, basis="trunc.poly", degree = 1), family="binomial")
+  },
+  error = function(e){
+    return(NA)
+  }
+  )
+  ERtr.lmm <- ifelse(sum(is.na(lmm_out)) == 1, NA, predi_trans(lmm_out$fit$fitted[,2], train))
+  pret.lmm <- ifelse(sum(is.na(lmm_out)) == 1, NA, predi_trans(predict(lmm_out, data.frame(x = test$x)), test))
+    
+  #PretPy <- data.frame(cbind(lm = pret.lm$test.py, boost = pret.boost$test.py, lmm = pret.lmm$test.py))
+  ER.train <- c(lm = ERtr.lm, boost = ERtr.boost , lmm = ERtr.lmm )
+  ER.test <- c(lm = pret.lm, boost = pret.boost, lmm = pret.lmm)
+
+  return(cbind(ER.train = ER.train, ER.test = ER.test))
+}
+```
+
+```{r}
+Data_bi1 <- Gene_data_bi(38,100,models[2])
+Data_bi2 <- Gene_data_bi(39,100,models[2])
+Data_bi3 <- Gene_data_bi(40,100,models[2])
+Est_bi(Data_bi1)
+Est_bi(Data_bi2)
+Est_bi(Data_bi3)
+```
+
+```{r}
+apply(sapply(seq(38:39), FUN = function(x) Est_bi(Gene_data_bi(x,ns[2], models[2]))), 1, FUN = function(x) c(mean(x[!is.na(x)]), quantile(x[!is.na(x)], c(0.025, 0.975))))
+```
+
+```{r}
+# For model 1 and different n
+Sim1.1 <- apply(sapply(seq(100), FUN = function(x) Est_bi(Gene_data_bi(x,ns[1], models[1]))), 1, FUN = function(x) c(mean(x[!is.na(x)]), quantile(x[!is.na(x)], c(0.025, 0.975))))
+Sim1.2 <- apply(sapply(seq(100), FUN = function(x) Est_bi(Gene_data_bi(x,ns[2], models[1]))), 1, FUN = function(x) c(mean(x[!is.na(x)]), quantile(x[!is.na(x)], c(0.025, 0.975))))
+Sim1.3 <- apply(sapply(seq(100), FUN = function(x) Est_bi(Gene_data_bi(x,ns[3], models[1]))), 1, FUN = function(x) c(mean(x[!is.na(x)]), quantile(x[!is.na(x)], c(0.025, 0.975))))
+
+# For model 2 and different n
+Sim2.1 <- apply(sapply(seq(100), FUN = function(x) Est_bi(Gene_data_bi(x,ns[1], models[2]))), 1, FUN = function(x) c(mean(x[!is.na(x)]), quantile(x[!is.na(x)], c(0.025, 0.975))))
+Sim2.2 <- apply(sapply(seq(100), FUN = function(x) Est_bi(Gene_data_bi(x,ns[2], models[2]))), 1, FUN = function(x) c(mean(x[!is.na(x)]), quantile(x[!is.na(x)], c(0.025, 0.975))))
+Sim2.3 <- apply(sapply(seq(100), FUN = function(x) Est_bi(Gene_data_bi(x,ns[3], models[2]))), 1, FUN = function(x) c(mean(x[!is.na(x)]), quantile(x[!is.na(x)], c(0.025, 0.975))))
+
+colnames(Sim1.1) <- colnames(Sim1.2) <- colnames(Sim1.3)  <- colnames(Sim2.1)  <- colnames(Sim2.2)  <- colnames(Sim2.3) <- c("train.lm","train.boost", "train.lmm", "test.lm", "test.boost", "test.lmm")
+
+Est_bi <- list(Sim1.1 = Sim1.1, Sim1.2 = Sim1.2, Sim1.3 = Sim1.3, Sim2.1 = Sim2.1, Sim2.2 = Sim2.2, Sim2.3 = Sim2.3)
+
+save(Est_bi, file = "C:/Users/jzou2/Box Sync/Classes/non_parametric/final_project/Est_bi2.RData")
+```
+
+```{r}
+load(file = "C:/Users/jzou2/Box Sync/Classes/non_parametric/final_project/Est_bi2.RData")
+```
+
+```{r}
+Est_bi
+```
+
+
+```{r}
+Est_bi
+```
+
+```{r}
+load(file = "C:/Users/jzou2/Box Sync/Classes/non_parametric/final_project/Est_bi2.RData")
+Est_bi_result <- matrix(NA, 6, 6)
+colnames(Est_bi_result) <- rep(c("train", "test"),3)
+rownames(Est_bi_result) <- rep(ns,2)
+for(i in seq(6)){
+  Est_bi_result[i,1] <- paste(sprintf("%.4f",Est_bi[[i]][1,1])," (", sprintf("%.4f",Est_bi[[i]][2,1]), ",", sprintf("%.4f",Est_bi[[i]][3,1]), ")", sep = "")
+  Est_bi_result[i,2] <- paste(sprintf("%.4f",Est_bi[[i]][1,4])," (", sprintf("%.4f",Est_bi[[i]][2,4]), ",", sprintf("%.4f",Est_bi[[i]][3,4]), ")", sep = "")
+  Est_bi_result[i,3] <- paste(sprintf("%.4f",Est_bi[[i]][1,2])," (", sprintf("%.4f",Est_bi[[i]][2,2]), ",", sprintf("%.4f",Est_bi[[i]][3,2]), ")", sep = "")
+  Est_bi_result[i,4] <- paste(sprintf("%.4f",Est_bi[[i]][1,5])," (", sprintf("%.4f",Est_bi[[i]][2,5]), ",", sprintf("%.4f",Est_bi[[i]][3,5]), ")", sep = "")
+  Est_bi_result[i,5] <- paste(sprintf("%.4f",Est_bi[[i]][1,3])," (", sprintf("%.4f",Est_bi[[i]][2,3]), ",", sprintf("%.4f",Est_bi[[i]][3,3]), ")", sep = "")
+  Est_bi_result[i,6] <- paste(sprintf("%.4f",Est_bi[[i]][1,6])," (", sprintf("%.4f",Est_bi[[i]][2,6]), ",", sprintf("%.4f",Est_bi[[i]][3,6]), ")", sep = "")
+}
+
+```
+
+
+```{r}
+Est_bi_result
+```
+
+```{r}
+setwd("C:/Users/jzou2/Box Sync/Classes/non_parametric/final_project/")
+Sys.setenv(JAVA_HOME='C://Program Files (x86)//Java//jre1.8.0_121') # for 64-bit version
+library(xlsx)
+write.xlsx(Est_bi_result, "Est_bi_result2.xlsx")
+```
+
